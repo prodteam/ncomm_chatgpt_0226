@@ -113,7 +113,13 @@ int main(void)
   MX_SPI3_Init();
   MX_I2S2_Init();
   MX_USART3_UART_Init();
+  void ncomm_app_init(void);
+  void ncomm_app_tick(void);
   /* USER CODE BEGIN 2 */
+ 
+  ncomm_uart_init();
+  ncomm_audio_init();
+  ncomm_vad_init();
 
   /* USER CODE END 2 */
 
@@ -123,6 +129,9 @@ int main(void)
 #else
   while (1)
   {
+  ncomm_uart_poll();
+  ncomm_audio_process();
+  ncomm_vad_process();
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
