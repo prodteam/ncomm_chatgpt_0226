@@ -113,6 +113,13 @@ int main(void)
   MX_TIM6_Init();
   MX_UART4_Init();
   MX_USART3_UART_Init();
+ ncomm::Config cfg;
+ cfg.active_stream = ncomm::StreamId::STREAM_MIC_RAW;
+ cfg.vad_n_positive = 3;
+ cfg.vad_threshold = 500;
+
+// ВАЖНО: huart3 и hi2sX должны существовать (Cube генерит их глобально)
+ncomm::NCommMcu1_Init(&huart3, &hi2s2, cfg); // <-- поменяй hi2s2 на свой handle
 
   MX_NVIC_Init();
 
@@ -125,6 +132,10 @@ int main(void)
   while (1)
   {
     NComm_App_Tick();
+   for (;;) {
+    ncomm::NCommMcu1_Loop();
+}
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
