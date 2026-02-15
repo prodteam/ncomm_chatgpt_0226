@@ -16,6 +16,17 @@
 #include "usart.h"
 #include "gpio.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+#include "main.h"
+#ifdef __cplusplus
+}
+#endif
+
+// C++ header
+#include "ncomm_mcu1.hpp"
+
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
