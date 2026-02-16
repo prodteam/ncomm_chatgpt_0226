@@ -17,6 +17,9 @@ public:
   // Call from HAL_UART_RxCpltCallback (byte-by-byte)
   void on_rx_byte(uint8_t b);
 
+  // Public getter for the last byte stored by RX IT (needed by main/callback)
+  uint8_t last_rx_byte() const { return rx_byte_; }
+
   // Commands to MCU1
   void send_ping();
   void set_stream(ncomm::StreamSelect sel); // MCU2 API requested: MIC_RAW vs RX_RAW
@@ -43,9 +46,10 @@ private:
   uint8_t msg_type_ = 0;
   uint8_t msg_id_ = 0;
 
+  // Byte buffer for HAL_UART_Receive_IT
   uint8_t rx_byte_ = 0;
+
   uint8_t tx_msg_id_ = 1;
-  uint8_t last_rx_byte() const { return rx_byte_; }
 
   void arm_rx_it_();
   void handle_frame_(uint8_t msg_type, const uint8_t* payload, uint16_t len);
