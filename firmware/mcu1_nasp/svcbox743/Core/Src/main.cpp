@@ -1,7 +1,7 @@
 /* USER CODE BEGIN Header */
 /**
   ******************************************************************************
-  * @file           : main.c
+  * @file           : main.cpp
   * @brief          : Main program body
   ******************************************************************************
   */
@@ -11,7 +11,13 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "ncomm_mcu1.hpp"   // <-- если у тебя .h/.hpp другой, поменяй здесь
+#include "dma.h"
+#include "gpio.h"
+#include "spi.h"
+#include "i2s.h"
+#include "usart.h"
+
+#include "ncomm_mcu1.hpp"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -27,18 +33,11 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-
 /* USER CODE BEGIN PV */
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
-static void MX_GPIO_Init(void);
-static void MX_DMA_Init(void);
-static void MX_SPI1_Init(void);
-static void MX_I2S2_Init(void);
-static void MX_USART3_UART_Init(void);
-static void MX_UART4_Init(void);
 /* USER CODE BEGIN PFP */
 /* USER CODE END PFP */
 
@@ -63,14 +62,16 @@ int main(void)
   MX_UART4_Init();
 
   /* USER CODE BEGIN 2 */
-  ncomm_mcu1_init();
+  // MCU1 <-> MCU2 link for MVP0 is expected on UART @ 1M.
+  // In this project MCU1 UART4 is configured as 1,000,000 baud (see usart.c).
+  ncomm::mcu1::Init(&huart4);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    ncomm_mcu1_poll();
+    ncomm::mcu1::Loop();
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
