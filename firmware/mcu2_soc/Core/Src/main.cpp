@@ -1,7 +1,7 @@
 /* USER CODE BEGIN Header */
 /**
   ******************************************************************************
-  * @file           : main.c
+  * @file           : main.cpp
   * @brief          : Main program body
   ******************************************************************************
   * @attention
@@ -27,7 +27,6 @@
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
-
 /* USER CODE BEGIN PV */
 static NcommMcu2 g_mcu2;
 /* USER CODE END PV */
@@ -44,14 +43,17 @@ void SystemClock_Config(void);
 /**
  * NOTE:
  * - USART3 @ 1,000,000 is MCU1<->MCU2 link (protocol + audio frames)
- * - UART4  @ 500,000 is MCU2<->MCU3 bridge/UI link (later)
+ * - UART4  @ 500,000 is MCU2<->MCU3 bridge/UI link (optional in MVP-0)
+ *
+ * ncomm_mcu2.cpp uses HAL_UART_Receive_IT(uart_mcu1_, &rx_byte_, 1).
+ * Therefore in RxCpltCallback we must pass that byte into the parser:
+ *   g_mcu2.on_rx_byte(g_mcu2.last_rx_byte());
  */
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
   if (huart == &huart3)
   {
-    // One byte received from MCU1 link -> let the MCU2 protocol parser consume it.
-    g_mcu2.on_uart_rx_complete();
+    g_mcu2.on_rx_byte(g_mcu2.last_rx_byte());
   }
   else
   {
@@ -79,16 +81,18 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_USART3_UART_Init();  // MCU1 link @1M
-  MX_UART4_Init();        // Bridge/UI @500k (MVP-0: unused)
+  MX_UART4_Init();        // Bridge/UI @500k (MVP-0: optional)
 
   /* USER CODE BEGIN 2 */
 
-  // Bring up MCU2 app: UART3 is master link to MCU1.
-  g_mcu2.init(&huart3, /*baud_mcu1=*/1000000);
-  g_mcu2.start();
+  // Bring up MCU2 protocol handler:
+  // - uart_mcu1 = USART3 (1M)
+  // - uart_ui   = UART4  (500k, optional for MVP0)
+  g_mcu2.init(&huart3, &huart4);
 
-  // Optional: send an initial PING to MCU1 (if your MCU1 stub supports it).
+  // Optional smoke-test actions:
   // g_mcu2.send_ping();
+  // g_mcu2.set_stream(ncomm::StreamSelect::STREAM_MIC_RAW);
 
   /* USER CODE END 2 */
 
@@ -96,7 +100,8 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    g_mcu2.poll();
+    // MVP-0: no active polling API; RX is interrupt-driven.
+    // Keep loop free for future tasks / UI / watchdog.
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
