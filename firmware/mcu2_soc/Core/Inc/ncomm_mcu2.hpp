@@ -26,6 +26,12 @@ public:
 
   // Optional: periodic housekeeping (timeouts, stats)
   void tick_1ms();
+  enum class AudioMonitorSource : uint8_t { RX = 0, MIC = 1 };
+  void set_audio_monitor_source(AudioMonitorSource src);
+
+private:
+  AudioMonitorSource audio_monitor_src_ = AudioMonitorSource::RX;
+
 
   struct Stats {
     uint32_t rx_bytes = 0;
