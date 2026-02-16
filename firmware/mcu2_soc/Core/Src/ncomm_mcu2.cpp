@@ -1,4 +1,6 @@
 #include "ncomm_mcu2.hpp"
+#include "audio_i2s_out.hpp"
+
 #include <cstring>
 
 static inline uint16_t le16(const uint8_t* p) { return (uint16_t)p[0] | ((uint16_t)p[1] << 8); }
@@ -14,22 +16,16 @@ void NcommMcu2::init(UART_HandleTypeDef* uart_mcu1, UART_HandleTypeDef* uart_ui)
   payload_pos_ = 0;
   crc_rx_ = 0;
 
-  // Do not auto-reset stats here (sometimes useful to preserve across soft reset)
-  // stats_reset();
-
   arm_rx_it_();
 }
 
 void NcommMcu2::arm_rx_it_() {
-  // byte-by-byte RX (no DMA)
   if (uart_mcu1_) {
     HAL_UART_Receive_IT(uart_mcu1_, &rx_byte_, 1);
   }
 }
 
-void NcommMcu2::tick_1ms() {
-  // reserved for watchdog/timeouts later
-}
+void NcommMcu2::tick_1ms() {}
 
 void NcommMcu2::on_rx_byte(uint8_t b) {
   stats_.rx_bytes++;
@@ -56,7 +52,6 @@ void NcommMcu2::on_rx_byte(uint8_t b) {
         payload_len_ = le16(&header_[2]);
 
         if (payload_len_ > ncomm::MAX_PAYLOAD) {
-          // drop frame
           st_ = RxState::SOF0;
           break;
         }
@@ -81,7 +76,6 @@ void NcommMcu2::on_rx_byte(uint8_t b) {
     case RxState::CRC1: {
       crc_rx_ |= (uint16_t)b << 8;
 
-      // validate CRC over header+payload
       uint8_t tmp[ncomm::HEADER_SIZE + ncomm::MAX_PAYLOAD];
       memcpy(tmp, header_, ncomm::HEADER_SIZE);
       if (payload_len_ > 0) memcpy(tmp + ncomm::HEADER_SIZE, payload_, payload_len_);
@@ -100,7 +94,6 @@ void NcommMcu2::on_rx_byte(uint8_t b) {
     }
   }
 
-  // re-arm receive
   arm_rx_it_();
 }
 
@@ -108,7 +101,6 @@ bool NcommMcu2::send_frame_(uint8_t msg_type, const uint8_t* payload, uint16_t l
   if (!uart_mcu1_) return false;
   if (len > ncomm::MAX_PAYLOAD) return false;
 
-  // Build [SOF0 SOF1][type id lenLE][payload][crcLE]
   uint8_t buf[2 + ncomm::HEADER_SIZE + ncomm::MAX_PAYLOAD + ncomm::CRC_SIZE];
   size_t pos = 0;
 
@@ -126,7 +118,6 @@ bool NcommMcu2::send_frame_(uint8_t msg_type, const uint8_t* payload, uint16_t l
     pos += len;
   }
 
-  // CRC over header+payload (starting at msg_type)
   const uint16_t crc = ncomm::crc16_ccitt_false(&buf[2], ncomm::HEADER_SIZE + len);
   buf[pos++] = (uint8_t)(crc & 0xFF);
   buf[pos++] = (uint8_t)(crc >> 8);
@@ -142,36 +133,25 @@ void NcommMcu2::send_ping() {
 
 void NcommMcu2::send_cmd_set_mode_(ncomm::Mode mode, ncomm::Ptt ptt,
                                   uint8_t rx_ve_enable, uint8_t tx_ve_enable) {
-  // Payload(8): mode, ptt, rx_ve_enable, tx_ve_enable, reserved[4]
   uint8_t p[8]{};
   p[0] = (uint8_t)mode;
   p[1] = (uint8_t)ptt;
   p[2] = rx_ve_enable;
   p[3] = tx_ve_enable;
-
   send_frame_((uint8_t)ncomm::MsgType::CMD_SET_MODE, p, sizeof(p));
 }
 
 void NcommMcu2::send_cmd_set_streams_(uint8_t stream_rx_enable, uint8_t stream_tx_enable,
                                      uint8_t mic_to_mcu2_source, uint8_t reserved0) {
-  // Payload(8): stream_rx_enable, stream_tx_enable, mic_to_mcu2_source, reserved0, reserved[4]
   uint8_t p[8]{};
   p[0] = stream_rx_enable;
   p[1] = stream_tx_enable;
-  p[2] = mic_to_mcu2_source; // 0=MIC_RAW, 1=MIC_VE (per spec table)
+  p[2] = mic_to_mcu2_source;
   p[3] = reserved0;
-
   send_frame_((uint8_t)ncomm::MsgType::CMD_SET_STREAMS, p, sizeof(p));
 }
 
 void NcommMcu2::set_stream(ncomm::StreamSelect sel) {
-  // MVP policy:
-  // - STREAM_MIC_RAW: want TX_AUDIO_OUT frames → enable TX stream, disable RX stream
-  // - STREAM_RX_RAW:  want RX_STREAM_OUT frames → enable RX stream, disable TX stream
-  //
-  // VE disabled in MVP: rx_ve_enable=0, tx_ve_enable=0
-  // mic_to_mcu2_source: 0 (MIC_RAW) for MVP
-
   if (sel == ncomm::StreamSelect::STREAM_MIC_RAW) {
     send_cmd_set_mode_(ncomm::Mode::TX, ncomm::Ptt::ON, 0, 0);
     send_cmd_set_streams_(0, 1, 0);
@@ -181,10 +161,25 @@ void NcommMcu2::set_stream(ncomm::StreamSelect sel) {
   }
 }
 
-void NcommMcu2::handle_frame_(uint8_t msg_type, const uint8_t* payload, uint16_t len) {
-  (void)payload;
-  (void)len;
+void NcommMcu2::set_audio_monitor_source(AudioMonitorSource src) {
+  audio_monitor_src_ = src;
+}
 
+// Payload format assumed:
+// [0]=stream_id, [1]=reserved, [2..3]=frame_len_bytes(u16 LE), [4..]=PCM16 little-endian
+static void push_pcm_from_audio_frame_(const uint8_t* payload, uint16_t len) {
+  if (!payload || len < 4) return;
+  const uint16_t frame_len = le16(payload + 2);
+  if (frame_len == 0) return;
+  if ((uint32_t)frame_len + 4u > len) return;
+  if ((frame_len & 1) != 0) return; // must be even for PCM16
+
+  const int16_t* pcm = reinterpret_cast<const int16_t*>(payload + 4);
+  const size_t samples = frame_len / 2;
+  audio_i2s_out::push_pcm16_mono(pcm, samples);
+}
+
+void NcommMcu2::handle_frame_(uint8_t msg_type, const uint8_t* payload, uint16_t len) {
   switch ((ncomm::MsgType)msg_type) {
 
     case ncomm::MsgType::EVT_PONG:
@@ -192,17 +187,21 @@ void NcommMcu2::handle_frame_(uint8_t msg_type, const uint8_t* payload, uint16_t
       break;
 
     case ncomm::MsgType::EVT_VAD:
-      // Payload(8): vad_flag(1), vad_conf(1), hangover_ms(2), chunk_index(4)
       stats_.vad++;
       break;
 
     case ncomm::MsgType::EVT_RX_AUDIO_FRAME:
-      // Payload: stream_id(1), reserved(1), frame_len_u16(2), PCM...
       stats_.audio_rx++;
+      if (audio_monitor_src_ == AudioMonitorSource::RX) {
+        push_pcm_from_audio_frame_(payload, len);
+      }
       break;
 
     case ncomm::MsgType::EVT_TX_AUDIO_FRAME:
       stats_.audio_tx++;
+      if (audio_monitor_src_ == AudioMonitorSource::MIC) {
+        push_pcm_from_audio_frame_(payload, len);
+      }
       break;
 
     case ncomm::MsgType::EVT_MODE_ACK:
