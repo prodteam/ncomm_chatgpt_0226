@@ -45,6 +45,7 @@ private:
 
   uint8_t rx_byte_ = 0;
   uint8_t tx_msg_id_ = 1;
+  uint8_t last_rx_byte() const { return rx_byte_; }
 
   void arm_rx_it_();
   void handle_frame_(uint8_t msg_type, const uint8_t* payload, uint16_t len);
