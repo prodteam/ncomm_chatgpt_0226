@@ -332,11 +332,3 @@ Firmware MVP-0 is considered stable when:
 * Evaluate DMA integration
 
 ---
-
-Если хочешь — следующим шагом можем:
-
-1. Добавить I2S/DAC в MCU2
-2. Или сразу проектировать DMA для MCU1
-3. Или обсудить стратегию одновременного RX + MIC без ломания 1M UART
-
-Какой вектор берём дальше?
