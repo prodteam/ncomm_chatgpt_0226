@@ -2,72 +2,86 @@
 /**
   ******************************************************************************
   * @file           : main.c
-  * @brief          : Main program body
+  * @brief          : Main program body (MCU2 SoC MVP-0)
   ******************************************************************************
   */
 /* USER CODE END Header */
 
+/* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "gpio.h"
+#include "usart.h"
 
-/* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "ncomm_mcu2.hpp"   // <-- если у тебя .h/.hpp другой, поменяй здесь
+#ifdef __cplusplus
+#include "ncomm_mcu2.hpp"
+#endif
 /* USER CODE END Includes */
 
-/* Private typedef -----------------------------------------------------------*/
-/* USER CODE BEGIN PTD */
-/* USER CODE END PTD */
-
-/* Private define ------------------------------------------------------------*/
-/* USER CODE BEGIN PD */
-/* USER CODE END PD */
-
-/* Private macro -------------------------------------------------------------*/
-/* USER CODE BEGIN PM */
-/* USER CODE END PM */
-
-/* Private variables ---------------------------------------------------------*/
-
+/* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN PV */
+#ifdef __cplusplus
+static ncomm::NcommMcu2 g_mcu2;
+#endif
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
-static void MX_GPIO_Init(void);
-static void MX_DMA_Init(void);
-static void MX_SPI1_Init(void);
-static void MX_I2S2_Init(void);
-static void MX_USART3_UART_Init(void);
-static void MX_UART4_Init(void);
+
 /* USER CODE BEGIN PFP */
 /* USER CODE END PFP */
 
-/* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+#ifdef __cplusplus
+extern "C" void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+  // USART3 = link MCU2<->MCU1 (1M)
+  if (huart == &huart3)
+  {
+    // Требует accessor в NcommMcu2:
+    //   uint8_t last_rx_byte() const { return rx_byte_; }
+    g_mcu2.on_rx_byte(g_mcu2.last_rx_byte());
+  }
+  else if (huart == &huart4)
+  {
+    // UART4 = link MCU2<->MCU3 (500k)
+    // Пока MVP-0: можно позже добавить отдельный парсер для UI команд
+    // или проброс логов. Сейчас просто игнорируем.
+    // (Если решишь принимать UI-кадры здесь — делаем второй инстанс протокола.)
+  }
+}
+#endif
+
 /* USER CODE END 0 */
 
 int main(void)
 {
-  HAL_Init();
+  /* MCU Configuration--------------------------------------------------------*/
 
+  HAL_Init();
   SystemClock_Config();
 
   MX_GPIO_Init();
-  MX_DMA_Init();
-  MX_SPI1_Init();
-  MX_I2S2_Init();
-  MX_USART3_UART_Init();
-  MX_UART4_Init();
+  MX_USART3_UART_Init();   // MCU1<->MCU2 @1_000_000
+  MX_UART4_Init();         // MCU2<->MCU3 @500_000
 
   /* USER CODE BEGIN 2 */
-  ncomm_mcu2_init();
+#ifdef __cplusplus
+  // Инициализация логики MCU2 (парсер протокола, команды, VAD статус и т.д.)
+  g_mcu2.init(&huart3, &huart4);
+#endif
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    ncomm_mcu2_poll();
+#ifdef __cplusplus
+    g_mcu2.tick();
+#endif
+    // Небольшая пауза, чтобы не крутиться на 100% CPU в MVP
+    HAL_Delay(1);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -75,24 +89,12 @@ int main(void)
   /* USER CODE END 3 */
 }
 
+/**
+  * @brief System Clock Configuration
+  * @note  MVP-0: оставляем дефолт / или позже генерим из CubeMX.
+  */
 void SystemClock_Config(void)
 {
-  /* NOTE: оставь как в Cube (я сюда не лезу). */
+  // MVP-0: можно оставить пустым как сейчас (как у тебя в MCU1),
+  // но для стабильного тайминга UART/I2S лучше потом сгенерить CubeMX clock tree.
 }
-
-/* USER CODE BEGIN 4 */
-/* USER CODE END 4 */
-
-void Error_Handler(void)
-{
-  __disable_irq();
-  while (1)
-  {
-  }
-}
-
-#ifdef  USE_FULL_ASSERT
-void assert_failed(uint8_t *file, uint32_t line)
-{
-}
-#endif /* USE_FULL_ASSERT */
