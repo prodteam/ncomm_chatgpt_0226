@@ -27,6 +27,30 @@ public:
   // Optional: periodic housekeeping (timeouts, stats)
   void tick_1ms();
 
+  struct Stats {
+    uint32_t rx_bytes = 0;
+    uint32_t rx_frames_ok = 0;
+    uint32_t rx_frames_bad_crc = 0;
+
+    uint32_t tx_frames = 0;
+
+    uint32_t pong = 0;
+    uint32_t vad = 0;
+
+    uint32_t audio_rx = 0;
+    uint32_t audio_tx = 0;
+
+    uint32_t ack_mode = 0;
+    uint32_t ack_streams = 0;
+    uint32_t ack_vad_cfg = 0;
+
+    uint32_t evt_error = 0;
+  };
+
+  const Stats& stats() const { return stats_; }
+  void stats_reset() { stats_ = {}; }
+
+
 private:
   UART_HandleTypeDef* uart_mcu1_ = nullptr;
   UART_HandleTypeDef* uart_ui_   = nullptr;
@@ -62,4 +86,5 @@ private:
                           uint8_t rx_ve_enable, uint8_t tx_ve_enable);
   void send_cmd_set_streams_(uint8_t stream_rx_enable, uint8_t stream_tx_enable,
                              uint8_t mic_to_mcu2_source, uint8_t reserved0 = 0);
+  Stats stats_{};
 };
