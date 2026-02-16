@@ -14,6 +14,9 @@ void NcommMcu2::init(UART_HandleTypeDef* uart_mcu1, UART_HandleTypeDef* uart_ui)
   payload_pos_ = 0;
   crc_rx_ = 0;
 
+  // Do not auto-reset stats here (sometimes useful to preserve across soft reset)
+  // stats_reset();
+
   arm_rx_it_();
 }
 
@@ -29,6 +32,8 @@ void NcommMcu2::tick_1ms() {
 }
 
 void NcommMcu2::on_rx_byte(uint8_t b) {
+  stats_.rx_bytes++;
+
   switch (st_) {
     case RxState::SOF0:
       st_ = (b == ncomm::SOF0) ? RxState::SOF1 : RxState::SOF0;
@@ -84,9 +89,11 @@ void NcommMcu2::on_rx_byte(uint8_t b) {
       const uint16_t crc_calc = ncomm::crc16_ccitt_false(tmp, ncomm::HEADER_SIZE + payload_len_);
 
       if (crc_calc == crc_rx_) {
+        stats_.rx_frames_ok++;
         handle_frame_(msg_type_, payload_, payload_len_);
+      } else {
+        stats_.rx_frames_bad_crc++;
       }
-      // else drop silently for MVP (later: EVT_ERROR/diag)
 
       st_ = RxState::SOF0;
       break;
@@ -124,7 +131,9 @@ bool NcommMcu2::send_frame_(uint8_t msg_type, const uint8_t* payload, uint16_t l
   buf[pos++] = (uint8_t)(crc & 0xFF);
   buf[pos++] = (uint8_t)(crc >> 8);
 
-  return (HAL_UART_Transmit(uart_mcu1_, buf, (uint16_t)pos, 50) == HAL_OK);
+  const bool ok = (HAL_UART_Transmit(uart_mcu1_, buf, (uint16_t)pos, 50) == HAL_OK);
+  if (ok) stats_.tx_frames++;
+  return ok;
 }
 
 void NcommMcu2::send_ping() {
@@ -139,7 +148,6 @@ void NcommMcu2::send_cmd_set_mode_(ncomm::Mode mode, ncomm::Ptt ptt,
   p[1] = (uint8_t)ptt;
   p[2] = rx_ve_enable;
   p[3] = tx_ve_enable;
-  // p[4..7] = 0
 
   send_frame_((uint8_t)ncomm::MsgType::CMD_SET_MODE, p, sizeof(p));
 }
@@ -152,6 +160,7 @@ void NcommMcu2::send_cmd_set_streams_(uint8_t stream_rx_enable, uint8_t stream_t
   p[1] = stream_tx_enable;
   p[2] = mic_to_mcu2_source; // 0=MIC_RAW, 1=MIC_VE (per spec table)
   p[3] = reserved0;
+
   send_frame_((uint8_t)ncomm::MsgType::CMD_SET_STREAMS, p, sizeof(p));
 }
 
@@ -173,32 +182,43 @@ void NcommMcu2::set_stream(ncomm::StreamSelect sel) {
 }
 
 void NcommMcu2::handle_frame_(uint8_t msg_type, const uint8_t* payload, uint16_t len) {
+  (void)payload;
+  (void)len;
+
   switch ((ncomm::MsgType)msg_type) {
 
     case ncomm::MsgType::EVT_PONG:
-      // OK link alive
+      stats_.pong++;
       break;
 
     case ncomm::MsgType::EVT_VAD:
       // Payload(8): vad_flag(1), vad_conf(1), hangover_ms(2), chunk_index(4)
-      // For MVP: just keep / later forward to MCU3 UI
-      // You can add a lightweight log hook here if needed
+      stats_.vad++;
       break;
 
     case ncomm::MsgType::EVT_RX_AUDIO_FRAME:
-    case ncomm::MsgType::EVT_TX_AUDIO_FRAME:
-      // For MVP: accept and drop (later route to DAC)
       // Payload: stream_id(1), reserved(1), frame_len_u16(2), PCM...
+      stats_.audio_rx++;
+      break;
+
+    case ncomm::MsgType::EVT_TX_AUDIO_FRAME:
+      stats_.audio_tx++;
       break;
 
     case ncomm::MsgType::EVT_MODE_ACK:
+      stats_.ack_mode++;
+      break;
+
     case ncomm::MsgType::EVT_STREAMS_ACK:
+      stats_.ack_streams++;
+      break;
+
     case ncomm::MsgType::EVT_VAD_CFG_ACK:
-      // Acks; for MVP just ignore or log
+      stats_.ack_vad_cfg++;
       break;
 
     case ncomm::MsgType::EVT_ERROR:
-      // optional diag later
+      stats_.evt_error++;
       break;
 
     default:
